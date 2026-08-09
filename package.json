@@ -1,0 +1,11 @@
+{
+  "name": "pi-lazy-context",
+  "version": "0.1.0",
+  "description": "Redução automática de tools e contexto enviado ao modelo no Pi Coding Agent",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "pi": { "extensions": ["./src/index.ts"] },
+  "files": ["src", "README.md", "LICENSE"]
+}
