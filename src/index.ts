@@ -48,7 +48,7 @@ type LazyStats = {
   optimizedChars: number;
   savedChars: number;
   originalTokens: number;
-  optimazedTokens: number;
+  optimizedTokens: number;
   savedTokens: number;
   updatedAt?: string;
 };
@@ -117,12 +117,12 @@ async function loadStats(cwd: string): Promise<LazyStats> {
       optimizedChars: Number(parsed.optimizedChars) || 0,
       savedChars: Number(parsed.savedChars) || 0,
       originalTokens: Number(parsed.originalTokens) || Math.round((Number(parsed.originalChars) || 0) / 4),
-      optimazedTokens: Number(parsed.optimazedTokens) || Math.round((Number(parsed.optimizedChars) || 0) / 4),
+      optimizedTokens: Number(parsed.optimizedTokens) || Math.round((Number(parsed.optimizedChars) || 0) / 4),
       savedTokens: Number(parsed.savedTokens) || Math.round((Number(parsed.savedChars) || 0) / 4),
       updatedAt: parsed.updatedAt,
     };
   } catch {
-    return { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimazedTokens: 0, savedTokens: 0 };
+    return { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimizedTokens: 0, savedTokens: 0 };
   }
 }
 
@@ -395,19 +395,29 @@ function trimToolDescriptionsInPayload(
 // Status de rodape
 // ---------------------------------------------------------------------------
 
+function formatCompactNumber(value: number): string {
+  const absolute = Math.abs(value);
+  if (absolute < 1000) return String(Math.round(value));
+  const units = [[1_000_000_000, "B"], [1_000_000, "M"], [1_000, "K"]] as const;
+  const unit = units.find(([size]) => absolute >= size);
+  if (!unit) return String(Math.round(value));
+  const compact = (value / unit[0]).toFixed(1).replace(/\.0$/, "");
+  return `${compact}${unit[1]}`;
+}
+
 function formatStats(stats: LazyStats): string {
   const saved = stats.savedChars;
   const ratio = stats.originalChars > 0 ? (saved / stats.originalChars * 100).toFixed(1) : "0.0";
-  return `${stats.requests} req., ${Math.round(saved / 1024)}kb / ~${Math.round(saved / 4)} tokens, ${ratio}%`;
+  return `${stats.requests} req., ${formatCompactNumber(Math.round(saved / 1024))}kb / ~${formatCompactNumber(Math.round(saved / 4))} tokens, ${ratio}%`;
 }
 
 function setLazyStatus(ctx: ExtensionContext, activeTools: number, totalTools: number, charsSaved: number): void {
-  const kb = charsSaved > 0 ? `${Math.round(charsSaved / 1024)}kb` : "0kb";
+  const kb = charsSaved > 0 ? `${formatCompactNumber(Math.round(charsSaved / 1024))}kb` : "0kb";
   // Estimativa simples: em média, quatro caracteres correspondem a um token.
   const tokens = Math.round(charsSaved / 4);
   ctx.ui.setStatus(
     "lazy-context",
-    `LAZY: tools ${activeTools}/${totalTools} · ${kb} economizados · TOK: ${tokens}`,
+    `LAZY: tools ${activeTools}/${totalTools} • ${kb} economizados • TOK: ${formatCompactNumber(tokens)}`,
   );
 }
 
@@ -422,7 +432,7 @@ export default function (pi: ExtensionAPI) {
   let lastActiveCount = 0;
   let lastTotalCount = 0;
   let pendingPromptText = "";
-  let stats: LazyStats = { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimazedTokens: 0, savedTokens: 0 };
+  let stats: LazyStats = { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimizedTokens: 0, savedTokens: 0 };
   let statsWriteQueue = Promise.resolve();
 
   pi.on("session_start", async (_event, ctx) => {
@@ -481,7 +491,7 @@ export default function (pi: ExtensionAPI) {
     stats.optimizedChars += optimizedChars;
     stats.savedChars += measuredSaved;
     stats.originalTokens += Math.round(originalChars / 4);
-    stats.optimazedTokens += Math.round(optimizedChars / 4);
+    stats.optimizedTokens += Math.round(optimizedChars / 4);
     stats.savedTokens += Math.round(measuredSaved / 4);
     stats.updatedAt = new Date().toISOString();
     statsWriteQueue = statsWriteQueue.then(() => saveStats(cwd, stats)).catch(() => undefined);
