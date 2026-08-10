@@ -405,19 +405,26 @@ function formatCompactNumber(value: number): string {
   return `${compact}${unit[1]}`;
 }
 
+function formatSavedSize(chars: number): string {
+  return formatCompactNumber(Math.max(0, chars));
+}
+
 function formatStats(stats: LazyStats): string {
   const saved = stats.savedChars;
   const ratio = stats.originalChars > 0 ? (saved / stats.originalChars * 100).toFixed(1) : "0.0";
-  return `${stats.requests} req., ${formatCompactNumber(Math.round(saved / 1024))}kb / ~${formatCompactNumber(Math.round(saved / 4))} tokens, ${ratio}%`;
+  return `${stats.requests} req., ${formatSavedSize(saved)} / ~${formatCompactNumber(stats.savedTokens)} tokens, ${ratio}%`;
 }
 
-function setLazyStatus(ctx: ExtensionContext, activeTools: number, totalTools: number, charsSaved: number): void {
-  const kb = charsSaved > 0 ? `${formatCompactNumber(Math.round(charsSaved / 1024))}kb` : "0kb";
-  // Estimativa simples: em média, quatro caracteres correspondem a um token.
-  const tokens = Math.round(charsSaved / 4);
+function setLazyStatus(
+  ctx: ExtensionContext,
+  activeTools: number,
+  totalTools: number,
+  charsSaved: number,
+  tokensSaved: number,
+): void {
   ctx.ui.setStatus(
     "lazy-context",
-    `LAZY: tools ${activeTools}/${totalTools} • ${kb} economizados • TOK: ${formatCompactNumber(tokens)}`,
+    `LAZY: tools ${activeTools}/${totalTools} • ${formatSavedSize(charsSaved)} economizados • TOK: ${formatCompactNumber(tokensSaved)} economizados`,
   );
 }
 
@@ -429,6 +436,7 @@ export default function (pi: ExtensionAPI) {
   let config: LazyConfig = DEFAULT_CONFIG;
   let cwd = "";
   let totalCharsSaved = 0;
+  let totalTokensSaved = 0;
   let lastActiveCount = 0;
   let lastTotalCount = 0;
   let pendingPromptText = "";
@@ -439,6 +447,9 @@ export default function (pi: ExtensionAPI) {
     cwd = ctx.cwd;
     config = await loadConfig(cwd, ctx);
     stats = await loadStats(cwd);
+    // O status deve refletir o mesmo acumulado persistido exibido por /lazy stats.
+    totalCharsSaved = stats.savedChars;
+    totalTokensSaved = stats.savedTokens;
     if (!config.enabled) {
       ctx.ui.setStatus("lazy-context", "LAZY: off");
       return;
@@ -447,7 +458,7 @@ export default function (pi: ExtensionAPI) {
     const active = pi.getActiveTools();
     lastTotalCount = all.length;
     lastActiveCount = active.length;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, 0);
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
   });
 
   // Captura o texto cru do prompt assim que o usuario envia — antes de
@@ -473,7 +484,7 @@ export default function (pi: ExtensionAPI) {
       pi.setActiveTools(desired);
       lastActiveCount = desired.length;
       lastTotalCount = allToolNames.length;
-      setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved);
+      setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
     }
   });
 
@@ -492,14 +503,16 @@ export default function (pi: ExtensionAPI) {
     stats.savedChars += measuredSaved;
     stats.originalTokens += Math.round(originalChars / 4);
     stats.optimizedTokens += Math.round(optimizedChars / 4);
-    stats.savedTokens += Math.round(measuredSaved / 4);
+    const measuredTokens = Math.round(measuredSaved / 4);
+    stats.savedTokens += measuredTokens;
+    totalTokensSaved += measuredTokens;
     stats.updatedAt = new Date().toISOString();
     statsWriteQueue = statsWriteQueue.then(() => saveStats(cwd, stats)).catch(() => undefined);
 
     if (removedChars === 0 && toonSavedChars === 0) return;
 
-    totalCharsSaved += removedChars + toonSavedChars;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved);
+    totalCharsSaved += measuredSaved;
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
     return { messages };
   });
 
@@ -518,7 +531,8 @@ export default function (pi: ExtensionAPI) {
     if (trimmedCount === 0) return;
 
     totalCharsSaved += charsSaved;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved);
+    totalTokensSaved += Math.round(charsSaved / 4);
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
     return payload;
   });
 
@@ -536,7 +550,7 @@ export default function (pi: ExtensionAPI) {
         case "on": {
           config.enabled = true;
           ctx.ui.notify("lazy-context: ativado", "info");
-          setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved);
+          setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
           break;
         }
         case "off": {
@@ -548,11 +562,10 @@ export default function (pi: ExtensionAPI) {
           break;
         }
         case "stats": {
-          const kb = (totalCharsSaved / 1024).toFixed(1);
           ctx.ui.notify(
             `lazy-context stats — tools ativas: ${lastActiveCount}/${lastTotalCount}, ` +
-              `sessao: ~${kb}kb (~${Math.round(totalCharsSaved / 4)} tokens), ` +
-              `acumulado: ${formatStats(stats)}`,
+              `acumulado: ~${formatSavedSize(totalCharsSaved)} (~${formatCompactNumber(totalTokensSaved)} tokens), ` +
+              `${formatStats(stats)}`,
             "info",
           );
           break;
