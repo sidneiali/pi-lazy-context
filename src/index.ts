@@ -34,7 +34,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -106,35 +106,6 @@ const DEFAULT_CONFIG: LazyConfig = {
   toonMinChars: 1200,
   toonMinSavingsRatio: 0.10,
 };
-
-async function loadStats(cwd: string): Promise<LazyStats> {
-  try {
-    const raw = await readFile(join(cwd, CONFIG_DIR_NAME, "lazy-context", "stats.json"), "utf8");
-    const parsed = JSON.parse(raw) as Partial<LazyStats>;
-    return {
-      requests: Number(parsed.requests) || 0,
-      originalChars: Number(parsed.originalChars) || 0,
-      optimizedChars: Number(parsed.optimizedChars) || 0,
-      savedChars: Number(parsed.savedChars) || 0,
-      originalTokens: Number(parsed.originalTokens) || Math.round((Number(parsed.originalChars) || 0) / 4),
-      optimizedTokens: Number(parsed.optimizedTokens) || Math.round((Number(parsed.optimizedChars) || 0) / 4),
-      savedTokens: Number(parsed.savedTokens) || Math.round((Number(parsed.savedChars) || 0) / 4),
-      updatedAt: parsed.updatedAt,
-    };
-  } catch {
-    return { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimizedTokens: 0, savedTokens: 0 };
-  }
-}
-
-async function saveStats(cwd: string, stats: LazyStats): Promise<void> {
-  const directory = join(cwd, CONFIG_DIR_NAME, "lazy-context");
-  const file = join(directory, "stats.json");
-  const temp = `${file}.tmp`;
-  await mkdir(directory, { recursive: true });
-  await writeFile(temp, `${JSON.stringify({ version: 1, ...stats }, null, 2)}
-`, "utf8");
-  await rename(temp, file);
-}
 
 async function loadConfig(cwd: string, ctx: ExtensionContext): Promise<LazyConfig> {
   if (!ctx.isProjectTrusted()) return { ...DEFAULT_CONFIG };
@@ -415,18 +386,6 @@ function formatStats(stats: LazyStats): string {
   return `${stats.requests} req., ${formatSavedSize(saved)} / ~${formatCompactNumber(stats.savedTokens)} tokens, ${ratio}%`;
 }
 
-function setLazyStatus(
-  ctx: ExtensionContext,
-  activeTools: number,
-  totalTools: number,
-  tokensSaved: number,
-): void {
-  ctx.ui.setStatus(
-    "lazy-context",
-    `LAZY: tools ${activeTools}/${totalTools} • TOK: ${formatCompactNumber(tokensSaved)} tokens economizados (sessao)`,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Extensao
 // ---------------------------------------------------------------------------
@@ -435,29 +394,21 @@ export default function (pi: ExtensionAPI) {
   let config: LazyConfig = DEFAULT_CONFIG;
   let cwd = "";
   let totalCharsSaved = 0;
-  let sessionTokensSaved = 0;
   let lastActiveCount = 0;
   let lastTotalCount = 0;
   let pendingPromptText = "";
   let stats: LazyStats = { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimizedTokens: 0, savedTokens: 0 };
-  let statsWriteQueue = Promise.resolve();
 
   pi.on("session_start", async (_event, ctx) => {
     cwd = ctx.cwd;
     config = await loadConfig(cwd, ctx);
-    stats = await loadStats(cwd);
-    // O status mostra somente a economia desta sessao; /lazy stats mostra o acumulado.
-    totalCharsSaved = stats.savedChars;
-    sessionTokensSaved = 0;
     if (!config.enabled) {
-      ctx.ui.setStatus("lazy-context", "LAZY: off");
       return;
     }
     const all = pi.getAllTools().map((t) => t.name);
     const active = pi.getActiveTools();
     lastTotalCount = all.length;
     lastActiveCount = active.length;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
   });
 
   // Captura o texto cru do prompt assim que o usuario envia — antes de
@@ -483,7 +434,6 @@ export default function (pi: ExtensionAPI) {
       pi.setActiveTools(desired);
       lastActiveCount = desired.length;
       lastTotalCount = allToolNames.length;
-      setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     }
   });
 
@@ -504,14 +454,11 @@ export default function (pi: ExtensionAPI) {
     stats.optimizedTokens += Math.round(optimizedChars / 4);
     const measuredTokens = Math.round(measuredSaved / 4);
     stats.savedTokens += measuredTokens;
-    sessionTokensSaved += measuredTokens;
     stats.updatedAt = new Date().toISOString();
-    statsWriteQueue = statsWriteQueue.then(() => saveStats(cwd, stats)).catch(() => undefined);
 
     if (removedChars === 0 && toonSavedChars === 0) return;
 
     totalCharsSaved += measuredSaved;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     return { messages };
   });
 
@@ -530,8 +477,6 @@ export default function (pi: ExtensionAPI) {
     if (trimmedCount === 0) return;
 
     totalCharsSaved += charsSaved;
-    sessionTokensSaved += Math.round(charsSaved / 4);
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     return payload;
   });
 
@@ -549,14 +494,12 @@ export default function (pi: ExtensionAPI) {
         case "on": {
           config.enabled = true;
           ctx.ui.notify("lazy-context: ativado", "info");
-          setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
           break;
         }
         case "off": {
           config.enabled = false;
           const all = pi.getAllTools().map((t) => t.name);
           pi.setActiveTools(all); // restaura toolset completo
-          ctx.ui.setStatus("lazy-context", "LAZY: off");
           ctx.ui.notify("lazy-context: desativado, toolset completo restaurado", "info");
           break;
         }
