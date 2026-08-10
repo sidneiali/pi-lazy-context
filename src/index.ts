@@ -419,12 +419,11 @@ function setLazyStatus(
   ctx: ExtensionContext,
   activeTools: number,
   totalTools: number,
-  charsSaved: number,
   tokensSaved: number,
 ): void {
   ctx.ui.setStatus(
     "lazy-context",
-    `LAZY: tools ${activeTools}/${totalTools} • ${formatSavedSize(charsSaved)} economizados • TOK: ${formatCompactNumber(tokensSaved)} economizados`,
+    `LAZY: tools ${activeTools}/${totalTools} • TOK: ${formatCompactNumber(tokensSaved)} tokens economizados (sessao)`,
   );
 }
 
@@ -436,7 +435,7 @@ export default function (pi: ExtensionAPI) {
   let config: LazyConfig = DEFAULT_CONFIG;
   let cwd = "";
   let totalCharsSaved = 0;
-  let totalTokensSaved = 0;
+  let sessionTokensSaved = 0;
   let lastActiveCount = 0;
   let lastTotalCount = 0;
   let pendingPromptText = "";
@@ -447,9 +446,9 @@ export default function (pi: ExtensionAPI) {
     cwd = ctx.cwd;
     config = await loadConfig(cwd, ctx);
     stats = await loadStats(cwd);
-    // O status deve refletir o mesmo acumulado persistido exibido por /lazy stats.
+    // O status mostra somente a economia desta sessao; /lazy stats mostra o acumulado.
     totalCharsSaved = stats.savedChars;
-    totalTokensSaved = stats.savedTokens;
+    sessionTokensSaved = 0;
     if (!config.enabled) {
       ctx.ui.setStatus("lazy-context", "LAZY: off");
       return;
@@ -458,7 +457,7 @@ export default function (pi: ExtensionAPI) {
     const active = pi.getActiveTools();
     lastTotalCount = all.length;
     lastActiveCount = active.length;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
   });
 
   // Captura o texto cru do prompt assim que o usuario envia — antes de
@@ -484,7 +483,7 @@ export default function (pi: ExtensionAPI) {
       pi.setActiveTools(desired);
       lastActiveCount = desired.length;
       lastTotalCount = allToolNames.length;
-      setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
+      setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     }
   });
 
@@ -505,14 +504,14 @@ export default function (pi: ExtensionAPI) {
     stats.optimizedTokens += Math.round(optimizedChars / 4);
     const measuredTokens = Math.round(measuredSaved / 4);
     stats.savedTokens += measuredTokens;
-    totalTokensSaved += measuredTokens;
+    sessionTokensSaved += measuredTokens;
     stats.updatedAt = new Date().toISOString();
     statsWriteQueue = statsWriteQueue.then(() => saveStats(cwd, stats)).catch(() => undefined);
 
     if (removedChars === 0 && toonSavedChars === 0) return;
 
     totalCharsSaved += measuredSaved;
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     return { messages };
   });
 
@@ -531,8 +530,8 @@ export default function (pi: ExtensionAPI) {
     if (trimmedCount === 0) return;
 
     totalCharsSaved += charsSaved;
-    totalTokensSaved += Math.round(charsSaved / 4);
-    setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
+    sessionTokensSaved += Math.round(charsSaved / 4);
+    setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
     return payload;
   });
 
@@ -550,7 +549,7 @@ export default function (pi: ExtensionAPI) {
         case "on": {
           config.enabled = true;
           ctx.ui.notify("lazy-context: ativado", "info");
-          setLazyStatus(ctx, lastActiveCount, lastTotalCount, totalCharsSaved, totalTokensSaved);
+          setLazyStatus(ctx, lastActiveCount, lastTotalCount, sessionTokensSaved);
           break;
         }
         case "off": {
@@ -564,7 +563,7 @@ export default function (pi: ExtensionAPI) {
         case "stats": {
           ctx.ui.notify(
             `lazy-context stats — tools ativas: ${lastActiveCount}/${lastTotalCount}, ` +
-              `acumulado: ~${formatSavedSize(totalCharsSaved)} (~${formatCompactNumber(totalTokensSaved)} tokens), ` +
+              `acumulado: ~${formatSavedSize(totalCharsSaved)} (~${formatCompactNumber(stats.savedTokens)} tokens), ` +
               `${formatStats(stats)}`,
             "info",
           );
