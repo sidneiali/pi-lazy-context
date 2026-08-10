@@ -47,6 +47,9 @@ type LazyStats = {
   originalChars: number;
   optimizedChars: number;
   savedChars: number;
+  originalTokens: number;
+  optimazedTokens: number;
+  savedTokens: number;
   updatedAt?: string;
 };
 
@@ -113,10 +116,13 @@ async function loadStats(cwd: string): Promise<LazyStats> {
       originalChars: Number(parsed.originalChars) || 0,
       optimizedChars: Number(parsed.optimizedChars) || 0,
       savedChars: Number(parsed.savedChars) || 0,
+      originalTokens: Number(parsed.originalTokens) || Math.round((Number(parsed.originalChars) || 0) / 4),
+      optimazedTokens: Number(parsed.optimazedTokens) || Math.round((Number(parsed.optimizedChars) || 0) / 4),
+      savedTokens: Number(parsed.savedTokens) || Math.round((Number(parsed.savedChars) || 0) / 4),
       updatedAt: parsed.updatedAt,
     };
   } catch {
-    return { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0 };
+    return { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimazedTokens: 0, savedTokens: 0 };
   }
 }
 
@@ -416,7 +422,7 @@ export default function (pi: ExtensionAPI) {
   let lastActiveCount = 0;
   let lastTotalCount = 0;
   let pendingPromptText = "";
-  let stats: LazyStats = { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0 };
+  let stats: LazyStats = { requests: 0, originalChars: 0, optimizedChars: 0, savedChars: 0, originalTokens: 0, optimazedTokens: 0, savedTokens: 0 };
   let statsWriteQueue = Promise.resolve();
 
   pi.on("session_start", async (_event, ctx) => {
@@ -474,6 +480,9 @@ export default function (pi: ExtensionAPI) {
     stats.originalChars += originalChars;
     stats.optimizedChars += optimizedChars;
     stats.savedChars += measuredSaved;
+    stats.originalTokens += Math.round(originalChars / 4);
+    stats.optimazedTokens += Math.round(optimizedChars / 4);
+    stats.savedTokens += Math.round(measuredSaved / 4);
     stats.updatedAt = new Date().toISOString();
     statsWriteQueue = statsWriteQueue.then(() => saveStats(cwd, stats)).catch(() => undefined);
 
