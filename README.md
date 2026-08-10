@@ -2,6 +2,8 @@
 
 Extensão para o Pi Coding Agent que reduz automaticamente o contexto enviado ao modelo e alterna o conjunto de tools conforme a intenção do prompt.
 
+> **Primeira utilização:** execute `/lazy init` dentro do projeto. O comando cria automaticamente `.pi/lazy-context.json` e os diretórios necessários; não é necessário criar arquivos ou diretórios manualmente.
+
 ## Recursos
 
 - Ativa apenas tools de leitura em prompts sem intenção de escrita.
@@ -20,7 +22,7 @@ pi install npm:pi-lazy-context
 
 ## Configuração
 
-Crie `.pi/lazy-context.json` no projeto para sobrescrever os padrões. A extensão funciona com os padrões mesmo sem arquivo de configuração.
+O comando `/lazy init` cria `.pi/lazy-context.json` com os valores padrão. Edite o arquivo somente se quiser personalizar a configuração.
 
 ```json
 {
@@ -42,6 +44,7 @@ Crie `.pi/lazy-context.json` no projeto para sobrescrever os padrões. A extens�
 
 ## Comandos
 
+- `/lazy init` — inicializa a configuração e os diretórios do projeto
 - `/lazy status`
 - `/lazy on` e `/lazy off`
 - `/lazy stats`
