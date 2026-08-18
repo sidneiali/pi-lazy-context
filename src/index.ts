@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, loadConfig } from "./config.js";
 import { pruneMessages } from "./context.js";
@@ -10,6 +12,7 @@ export default function (pi: ExtensionAPI) {
   const runtime: LazyRuntime = {
     config: { ...DEFAULT_CONFIG },
     cwd: "",
+    initialized: false,
     totalCharsSaved: 0,
     lastActiveCount: 0,
     lastTotalCount: 0,
@@ -19,7 +22,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     runtime.cwd = ctx.cwd;
-    runtime.config = await loadConfig(runtime.cwd, ctx);
+    runtime.initialized = existsSync(join(ctx.cwd, ".pi", "lazy-context.json"));
+    runtime.config = runtime.initialized ? await loadConfig(runtime.cwd, ctx) : { ...DEFAULT_CONFIG, enabled: false };
     if (!runtime.config.enabled) return;
     const all = pi.getAllTools().map((tool) => tool.name);
     runtime.lastTotalCount = all.length;
@@ -27,11 +31,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("input", async (event) => {
+    if (!runtime.initialized) return;
     runtime.pendingPromptText = typeof event.text === "string" ? event.text : "";
   });
 
   pi.on("before_agent_start", async () => {
-    if (!runtime.config.enabled || !runtime.config.lazyTools) return;
+    if (!runtime.initialized || !runtime.config.enabled || !runtime.config.lazyTools) return;
     const allToolNames = pi.getAllTools().map((tool) => tool.name);
     const desired = decideToolSet(runtime.pendingPromptText, allToolNames, runtime.config);
     if (!sameToolSet(pi.getActiveTools(), desired)) {
@@ -42,7 +47,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("context", async (event) => {
-    if (!runtime.config.enabled || !runtime.config.lazyContext) return;
+    if (!runtime.initialized || !runtime.config.enabled || !runtime.config.lazyContext) return;
     const originalChars = JSON.stringify(event.messages).length;
     const { messages, removedChars, toonSavedChars } = pruneMessages(event.messages, runtime.config);
     const optimizedChars = JSON.stringify(messages).length;
@@ -61,7 +66,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_provider_request", async (event) => {
-    if (!runtime.config.enabled || !runtime.config.trimToolDescriptions) return;
+    if (!runtime.initialized || !runtime.config.enabled || !runtime.config.trimToolDescriptions) return;
     const result = trimToolDescriptionsInPayload(event.payload, runtime.config.toolDescriptionMaxChars);
     if (result.trimmedCount === 0) return;
     runtime.totalCharsSaved += result.charsSaved;

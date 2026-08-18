@@ -13,10 +13,15 @@ export function registerLazyCommand(pi: ExtensionAPI, runtime: LazyRuntime): voi
     },
     handler: async (args, ctx) => {
       const subcommand = args.trim();
+      if (subcommand !== "init" && !runtime.initialized) {
+        ctx.ui.notify("Execute /lazy init neste projeto antes de usar o pi-lazy-context.", "warning");
+        return;
+      }
       switch (subcommand) {
         case "init":
           await initializeConfig(ctx.cwd);
           runtime.cwd = ctx.cwd;
+          runtime.initialized = true;
           runtime.config = await loadConfig(runtime.cwd, ctx);
           ctx.ui.notify("Configuração do pi-lazy-context inicializada em .pi/lazy-context.json.", "info");
           break;
